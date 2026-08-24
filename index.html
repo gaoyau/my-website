@@ -56,6 +56,18 @@ const walls = [
 const kid = {x:120, y:120, r:14, speed:3.4};
 const guard = {x:W-120, y:H-120, r:16};
 let planes = [], score = 0, keys = {}, over = false, won = false;
+let restartBtn = null;
+
+// 撳 restart 掣（畫布上，手機/滑鼠都得）
+cv.addEventListener('pointerdown', e => {
+  if (!over || !restartBtn) return;
+  const rect = cv.getBoundingClientRect();
+  const sx = W / rect.width, sy = H / rect.height;
+  const x = (e.clientX - rect.left) * sx, y = (e.clientY - rect.top) * sy;
+  if (x > restartBtn.x && x < restartBtn.x+restartBtn.w && y > restartBtn.y && y < restartBtn.y+restartBtn.h) {
+    location.reload();
+  }
+});
 let guardDir = {x:0, y:1};   // 保安面向
 const BASE_GUARD_SPEED = 1.6;
 
@@ -258,7 +270,17 @@ function draw() {
     ctx.font = 'bold 52px sans-serif';
     ctx.fillText(won ? '你贏咗！🎉' : '俾保安捉到喇！', W/2, H/2);
     ctx.fillStyle = '#fff'; ctx.font = '24px sans-serif';
-    ctx.fillText(`最後分數：${score}　按 R 重新開始`, W/2, H/2+50);
+    ctx.fillText(`最後分數：${score}`, W/2, H/2+50);
+    ctx.fillText('按 R 或撳下面掣重新開始', W/2, H/2+85);
+    // 手機 restart 掣
+    const bw = 220, bh = 56, bx = W/2-bw/2, by = H/2+115;
+    ctx.fillStyle = '#2e86be';
+    ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 12); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 26px sans-serif';
+    ctx.fillText('🔄 重新開始', W/2, by+37);
+    restartBtn = {x:bx, y:by, w:bw, h:bh};
+  } else {
+    restartBtn = null;
   }
 }
 
