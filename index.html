@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>粉嶺法院小回憶</title>
+<style>
+  body { margin:0; background:#241a10; font-family:"PingFang TC","Microsoft JhengHei",sans-serif;
+         display:flex; flex-direction:column; align-items:center; color:#e8dcc8;
+         touch-action:none; -webkit-user-select:none; user-select:none; }
+  #hud { font-size:18px; padding:6px; letter-spacing:2px; }
+  #wrap { position:relative; }
+  canvas { display:block; border:6px solid #4a2f1a; border-radius:8px;
+           box-shadow:0 8px 30px rgba(0,0,0,.6); max-width:100vw; }
+  #msg { font-size:14px; padding:4px; color:#b8a888; text-align:center; }
+  /* 手機控制 */
+  #joy { position:absolute; left:12px; bottom:12px; width:110px; height:110px;
+         border-radius:50%; background:rgba(255,255,255,.12); border:2px solid rgba(255,255,255,.25);
+         display:none; touch-action:none; }
+  #knob { position:absolute; left:33px; top:33px; width:44px; height:44px; border-radius:50%;
+          background:rgba(255,255,255,.45); }
+  #planeBtn { position:absolute; right:14px; bottom:18px; width:84px; height:84px; border-radius:50%;
+          background:rgba(46,134,222,.75); color:#fff; font-size:17px; border:3px solid rgba(255,255,255,.5);
+          display:none; align-items:center; justify-content:center; touch-action:none; }
+  body.touch #joy { display:block; }
+  body.touch #planeBtn { display:flex; }
+  @media (pointer:coarse) { body.touch #joy { display:block; } body.touch #planeBtn { display:flex; } }
+</style>
+</head>
+<body>
+<div id="hud">分數：0 / 100　保安速度：x1.0</div>
+<div id="wrap">
+<canvas id="game" width="900" height="620"></canvas>
+<div id="joy"><div id="knob"></div></div>
+<div id="planeBtn">✈ 放飛機</div>
+</div>
+<div id="msg">方向鍵 / WASD 或搖桿移動，按空白鍵或「✈ 放飛機」掣（+1分）。放滿 100 分就贏！俾保安捉到就輸。</div>
+<script>
+const cv = document.getElementById('game'), ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height;
+
+// 法院大堂佈景：外圍牆 + 法官席/欄杆做障礙
+const walls = [
+  {x:0,y:0,w:W,h:30},
+  {x:0,y:H-30,w:W,h:30},
+  {x:0,y:0,w:30,h:H},
+  {x:W-30,y:0,w:30,h:H},
+  {x:330,y:60,w:240,h:60},       // 法官席（上）
+  {x:250,y:250,w:180,h:55},      // 左欄杆
+  {x:480,y:250,w:180,h:55},      // 右欄杆
+  {x:360,y:420,w:190,h:55},      // 中央欄杆
+  {x:60,y:470,w:130,h:55},       // 左下長凳
+  {x:700,y:120,w:140,h:55},      // 右上長凳
+];
+
+const kid = {x:120, y:120, r:14, speed:3.4};
+const guard = {x:W-120, y:H-120, r:16};
+let planes = [], score = 0, keys = {}, over = false, won = false;
+let guardDir = {x:0, y:1};   // 保安面向
+const BASE_GUARD_SPEED = 1.6;
+
+function guardSpeed() {
+  // 80 分前每 20 分 +25%；80 分之後只係好輕微咁加速（+6% 每 20 分）
+  if (score < 80) {
+    const lvl = Math.floor(score / 20);
+    return BASE_GUARD_SPEED * (1 + lvl * 0.25);
+  }
+  return BASE_GUARD_SPEED * 2.0 + Math.floor((score - 80) / 20) * 0.1;
+}
+
+document.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if (e.key === ' ') { e.preventDefault(); dropPlane(); }
+});
+document.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+function dropPlane() {
+  if (over) return;
+  planes.push({x:kid.x, y:kid.y, dx:(Math.random()-0.5)*3, dy:-2-Math.random()*2, t:0, sway:Math.random()*6});
+  score++;
+  if (score >= 100) { over = true; won = true; }
+}
+
+function hitWall(x, y, r) {
+  return walls.some(w => x+r > w.x && x-r < w.x+w.w && y+r > w.y && y-r < w.y+w.h);
+}
+
+function update() {
+  if (over) return;
+  let dx = (keys['arrowright']||keys['d']?1:0) - (keys['arrowleft']||keys['a']?1:0);
+  let dy = (keys['arrowdown']||keys['s']?1:0) - (keys['arrowup']||keys['w']?1:0);
+  if (dx && dy) { dx *= 0.707; dy *= 0.707; }
+  if (!hitWall(kid.x+dx*kid.speed, kid.y, kid.r)) kid.x += dx*kid.speed;
+  if (!hitWall(kid.x, kid.y+dy*kid.speed, kid.r)) kid.y += dy*kid.speed;
+
+  const sp = guardSpeed();
+  let gx = kid.x - guard.x, gy = kid.y - guard.y;
+  const d = Math.hypot(gx, gy) || 1;
+  let vx = gx/d*sp, vy = gy/d*sp;
+  if (hitWall(guard.x+vx, guard.y, guard.r)) vx = 0;
+  if (hitWall(guard.x, guard.y+vy, guard.r)) vy = 0;
+  guard.x += vx; guard.y += vy;
+  if (vx || vy) guardDir = {x:vx, y:vy};
+
+  planes.forEach(p => { p.x += p.dx; p.y += p.dy; p.t++; });
+  planes = planes.filter(p => p.t < 90 && p.x > -20 && p.x < W+20);
+
+  if (Math.hypot(kid.x-guard.x, kid.y-guard.y) < kid.r + guard.r - 4) { over = true; won = false; }
+}
+
+// ---------- 繪畫 ----------
+
+function drawRoom() {
+  // 木地板
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#c89b66'); g.addColorStop(1,'#a87b48');
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle = 'rgba(90,55,25,.18)'; ctx.lineWidth = 1;
+  for (let y=30; y<H-30; y+=26) {
+    ctx.beginPath(); ctx.moveTo(30,y); ctx.lineTo(W-30,y); ctx.stroke();
+    for (let x=30+((y/26)%2)*40; x<W-30; x+=80) {
+      ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x,y+26); ctx.stroke();
+    }
+  }
+
+  // 大窗（左邊，參考相中法院大窗）
+  ctx.fillStyle = '#eef3f5';
+  ctx.fillRect(34, 40, 150, 300);
+  ctx.strokeStyle = '#5a6a70'; ctx.lineWidth = 4;
+  ctx.strokeRect(34, 40, 150, 300);
+  for (let i=1; i<4; i++) {
+    ctx.beginPath(); ctx.moveTo(34+i*37.5, 40); ctx.lineTo(34+i*37.5, 340); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(34, 40+i*75); ctx.lineTo(184, 40+i*75); ctx.stroke();
+  }
+  // 窗光斜照落地
+  ctx.save();
+  ctx.globalAlpha = 0.12; ctx.fillStyle = '#fffbe8';
+  ctx.beginPath(); ctx.moveTo(34,340); ctx.lineTo(184,340); ctx.lineTo(320,H-30); ctx.lineTo(60,H-30); ctx.closePath(); ctx.fill();
+  ctx.restore();
+
+  // 牆腳木圍板
+  ctx.fillStyle = '#5e3a1e';
+  ctx.fillRect(30, 340, W-60, 14);
+
+  // 牆（米白色，似法院外牆）
+  ctx.fillStyle = '#efe6d2';
+  ctx.fillRect(0,0,W,30); ctx.fillRect(0,H-30,W,30);
+  ctx.fillRect(0,0,30,H); ctx.fillRect(W-30,0,30,H);
+  ctx.fillStyle = '#d8c9a8';
+  ctx.fillRect(0,26,W,4); ctx.fillRect(0,H-34,W,4);
+}
+
+function drawFurniture() {
+  walls.slice(4).forEach(w => {
+    // 木傢俬：深木身 + 淺木面 + 陰影
+    ctx.fillStyle = 'rgba(0,0,0,.18)';
+    ctx.fillRect(w.x+4, w.y+6, w.w, w.h);
+    ctx.fillStyle = '#6b3f1f';
+    ctx.fillRect(w.x, w.y+6, w.w, w.h-6);
+    ctx.fillStyle = '#8a5a2e';
+    ctx.fillRect(w.x, w.y, w.w, 10);
+    ctx.strokeStyle = '#3f2410'; ctx.lineWidth = 2;
+    ctx.strokeRect(w.x, w.y, w.w, w.h);
+    // 木紋
+    ctx.strokeStyle = 'rgba(50,28,10,.35)'; ctx.lineWidth = 1;
+    for (let i=1; i<3; i++) {
+      ctx.beginPath();
+      ctx.moveTo(w.x+6, w.y+10+i*((w.h-12)/3));
+      ctx.lineTo(w.x+w.w-6, w.y+10+i*((w.h-12)/3));
+      ctx.stroke();
+    }
+  });
+  // 法官席加個「法」字牌
+  ctx.fillStyle = '#3f2410';
+  ctx.font = 'bold 26px serif'; ctx.textAlign = 'center';
+  ctx.fillText('法', 450, 100);
+}
+
+function drawPlane(p) {
+  ctx.save(); ctx.translate(p.x, p.y);
+  ctx.rotate(Math.atan2(p.dy, p.dx));
+  ctx.globalAlpha = Math.max(0, 1 - p.t/90);
+  ctx.fillStyle = '#fdfdf5';
+  ctx.beginPath(); ctx.moveTo(12,0); ctx.lineTo(-9,-7); ctx.lineTo(-4,0); ctx.lineTo(-9,7); ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = '#9a9a8a'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.restore();
+}
+
+function drawKid() {
+  const {x, y} = kid;
+  ctx.save();
+  // 影
+  ctx.fillStyle = 'rgba(0,0,0,.25)';
+  ctx.beginPath(); ctx.ellipse(x, y+14, 12, 4, 0, 0, 7); ctx.fill();
+  // 身（藍色校服）
+  ctx.fillStyle = '#2e6fbe';
+  ctx.beginPath(); ctx.roundRect(x-10, y-4, 20, 18, 5); ctx.fill();
+  // 腳
+  ctx.fillStyle = '#33475b';
+  ctx.fillRect(x-8, y+12, 6, 5); ctx.fillRect(x+2, y+12, 6, 5);
+  // 頭
+  ctx.fillStyle = '#ffd9b3';
+  ctx.beginPath(); ctx.arc(x, y-11, 9, 0, 7); ctx.fill();
+  // 頭髮
+  ctx.fillStyle = '#2b2118';
+  ctx.beginPath(); ctx.arc(x, y-13, 9, Math.PI, 0); ctx.fill();
+  // 眼
+  ctx.fillStyle = '#222';
+  ctx.beginPath(); ctx.arc(x-3, y-10, 1.4, 0, 7); ctx.arc(x+3, y-10, 1.4, 0, 7); ctx.fill();
+  ctx.restore();
+}
+
+function drawGuard() {
+  const {x, y} = guard;
+  const face = guardDir.x >= 0 ? 1 : -1;
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,.25)';
+  ctx.beginPath(); ctx.ellipse(x, y+16, 13, 5, 0, 0, 7); ctx.fill();
+  // 身（深藍保安制服）
+  ctx.fillStyle = '#1f3a5f';
+  ctx.beginPath(); ctx.roundRect(x-12, y-4, 24, 20, 5); ctx.fill();
+  // 銅扣
+  ctx.fillStyle = '#d4af37';
+  ctx.beginPath(); ctx.arc(x, y+4, 1.8, 0, 7); ctx.arc(x, y+9, 1.8, 0, 7); ctx.fill();
+  // 腳
+  ctx.fillStyle = '#16222f';
+  ctx.fillRect(x-9, y+14, 7, 5); ctx.fillRect(x+2, y+14, 7, 5);
+  // 頭
+  ctx.fillStyle = '#f0c9a0';
+  ctx.beginPath(); ctx.arc(x, y-12, 9.5, 0, 7); ctx.fill();
+  // 保安帽
+  ctx.fillStyle = '#12253d';
+  ctx.beginPath(); ctx.arc(x, y-14, 10, Math.PI, 0); ctx.fill();
+  ctx.fillRect(x-11, y-15, 22, 4);
+  ctx.fillStyle = '#d4af37'; // 帽徽
+  ctx.beginPath(); ctx.arc(x+face*0, y-19, 2.2, 0, 7); ctx.fill();
+  // 眼
+  ctx.fillStyle = '#222';
+  ctx.beginPath(); ctx.arc(x-3+face*1.5, y-11, 1.4, 0, 7); ctx.arc(x+3+face*1.5, y-11, 1.4, 0, 7); ctx.fill();
+  ctx.restore();
+}
+
+function draw() {
+  drawRoom();
+  drawFurniture();
+  planes.forEach(drawPlane);
+  drawKid();
+  drawGuard();
+
+  document.getElementById('hud').textContent =
+    `分數：${score} / 100　保安速度：x${(guardSpeed()/BASE_GUARD_SPEED).toFixed(1)}`;
+
+  if (over) {
+    ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(0,0,W,H);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = won ? '#2ecc71' : '#e74c3c';
+    ctx.font = 'bold 52px sans-serif';
+    ctx.fillText(won ? '你贏咗！🎉' : '俾保安捉到喇！', W/2, H/2);
+    ctx.fillStyle = '#fff'; ctx.font = '24px sans-serif';
+    ctx.fillText(`最後分數：${score}　按 R 重新開始`, W/2, H/2+50);
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key.toLowerCase() === 'r' && over) location.reload();
+});
+
+// ---------- 手機控制 ----------
+// 畫布自動縮放去 fit 螢幕
+function fitCanvas() {
+  const maxW = window.innerWidth - 12;
+  const maxH = window.innerHeight - 110;
+  const s = Math.min(maxW / W, maxH / H, 1);
+  cv.style.width = (W * s) + 'px';
+  cv.style.height = (H * s) + 'px';
+}
+window.addEventListener('resize', fitCanvas);
+fitCanvas();
+
+// 虛擬搖桿
+const joy = document.getElementById('joy'), knob = document.getElementById('knob');
+let joyVec = {x:0, y:0}, joyId = null;
+function joyMove(t) {
+  const rect = joy.getBoundingClientRect();
+  let dx = t.clientX - (rect.left + rect.width/2);
+  let dy = t.clientY - (rect.top + rect.height/2);
+  const max = rect.width/2, d = Math.hypot(dx, dy);
+  if (d > max) { dx = dx/d*max; dy = dy/d*max; }
+  knob.style.left = (rect.width/2 + dx - 22) + 'px';
+  knob.style.top  = (rect.height/2 + dy - 22) + 'px';
+  joyVec = {x: dx/max, y: dy/max};
+}
+joy.addEventListener('touchstart', e => {
+  e.preventDefault(); joyId = e.changedTouches[0].identifier;
+  joyMove(e.changedTouches[0]);
+});
+joy.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) if (t.identifier === joyId) joyMove(t);
+});
+joy.addEventListener('touchend', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) if (t.identifier === joyId) {
+    joyId = null; joyVec = {x:0, y:0};
+    knob.style.left = '33px'; knob.style.top = '33px';
+  }
+});
+
+// 放飛機掣
+document.getElementById('planeBtn').addEventListener('touchstart', e => {
+  e.preventDefault(); dropPlane();
+});
+
+// update() 融合搖桿輸入
+const _origUpdate = update;
+update = function() {
+  if (!over && (joyVec.x || joyVec.y)) {
+    keys['_jx'] = null; // noop
+    const jx = joyVec.x, jy = joyVec.y;
+    let dx = jx, dy = jy;
+    if (dx && dy) { dx *= 0.707; dy *= 0.707; }
+    if (!hitWall(kid.x+dx*kid.speed, kid.y, kid.r)) kid.x += dx*kid.speed;
+    if (!hitWall(kid.x, kid.y+dy*kid.speed, kid.r)) kid.y += dy*kid.speed;
+  }
+  _origUpdate();
+};
+
+// 觸控裝置顯示控制
+window.addEventListener('touchstart', () => document.body.classList.add('touch'), {once:true, passive:true});
+
+(function loop(){ update(); draw(); requestAnimationFrame(loop); })();
+</script>
+</body>
+</html>
